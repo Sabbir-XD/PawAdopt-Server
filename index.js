@@ -28,15 +28,36 @@ async function run() {
     // Connect the client to the server	(optional starting in v4.7)
     await client.connect();
     // Send a ping to confirm a successful connection
-     
+
     const userCollection = client.db("PetAdopt").collection("users");
 
+    //create user
     app.post("/users", async (req, res) => {
       const user = req.body;
+      const query = { email: user.email };
+      const existingUser = await userCollection.findOne(query);
+      if (existingUser) {
+        return res.send({ message: "user already exists" });
+      }
       const result = await userCollection.insertOne(user);
       res.send(result);
     });
 
+    //get user
+    app.get("/users", async (req, res) => {
+      const result = await userCollection.find().toArray();
+      res.send(result);
+    });
+
+    //put user
+    app.put("/users", async (req, res) => {
+      const user = req.body;
+      const filter = { email: user.email };
+      const update = { $set: { ...user, updatedAt: new Date().toISOString() } };
+      const options = { upsert: true };
+      const result = await userCollection.updateOne(filter, update, options);
+      res.send(result);
+    });
 
     await client.db("admin").command({ ping: 1 });
     console.log(
