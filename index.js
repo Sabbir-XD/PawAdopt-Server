@@ -61,58 +61,64 @@ async function run() {
     });
 
     // CREATE - Add a new pet
-app.post("/pets", async (req, res) => {
-  const pet = req.body;
-  const result = await petCollection.insertOne(pet);
-  res.send(result);
-});
+    app.post("/pets", async (req, res) => {
+      const pet = req.body;
+      const result = await petCollection.insertOne(pet);
+      res.send(result);
+    });
 
-// READ - Get pets (filtered by email if provided)
-app.get("/pets", async (req, res) => {
-  const email = req.query.email;
-  const query = email ? { email } : {};
-  const result = await petCollection.find(query).toArray();
-  res.send(result);
-});
+    // READ - Get pets (filtered by email if provided)
+    app.get("/pets", async (req, res) => {
+      const email = req.query.email;
+      const query = email ? { email } : {};
+      const result = await petCollection.find(query).toArray();
+      res.send(result);
+    });
 
-// UPDATE - Update pet details
-app.put("/pets/:id", async (req, res) => {
-  const id = req.params.id;
-  const updatedData = req.body;
-  const filter = { _id: new ObjectId(id) };
-  const updateDoc = {
-    $set: updatedData,
-  };
-  const result = await petCollection.updateOne(filter, updateDoc);
-  res.send(result);
-});
+    // UPDATE - Update pet details
+    app.patch("/pets/:id", async (req, res) => {
+      const id = req.params.id;
+      const updatedData = req.body;
+      const filter = { _id: new ObjectId(id) };
+      const updateDoc = {
+        $set: updatedData,
+      };
+      const result = await petCollection.updateOne(filter, updateDoc);
+      res.send(result);
+    });
+    
+    // READ - Get a specific pet by ID
+    app.get("/pets/:id", async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const pet = await petCollection.findOne(query);
+      if (!pet) {
+        return res.status(404).send({ message: "Pet not found" });
+      }
+      res.send(pet);
+    });
+    
 
-// DELETE - Delete a pet
-app.delete("/pets/:id", async (req, res) => {
-  const id = req.params.id;
-  const query = { _id: new ObjectId(id) };
-  const result = await petCollection.deleteOne(query);
-  res.send(result);
-});
+    // DELETE - Delete a pet
+    app.delete("/pets/:id", async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const result = await petCollection.deleteOne(query);
+      res.send(result);
+    });
 
-// PATCH - Mark as Adopted
-app.patch("/pets/:id/adopt", async (req, res) => {
-  const id = req.params.id;
-  const filter = { _id: new ObjectId(id) };
-  const updateDoc = {
-    $set: {
-      adopted: true,
-    },
-  };
-  const result = await petCollection.updateOne(filter, updateDoc);
-  res.send(result);
-});
-
-
-
-
-
-
+    // PATCH - Mark as Adopted
+    app.patch("/pets/:id/adopt", async (req, res) => {
+      const id = req.params.id;
+      const filter = { _id: new ObjectId(id) };
+      const updateDoc = {
+        $set: {
+          adopted: true,
+        },
+      };
+      const result = await petCollection.updateOne(filter, updateDoc);
+      res.send(result);
+    });
 
     await client.db("admin").command({ ping: 1 });
     console.log(
