@@ -31,6 +31,9 @@ async function run() {
 
     const userCollection = client.db("PetAdopt").collection("users");
     const petCollection = client.db("PetAdopt").collection("pets");
+    const donationCollection = client
+      .db("PetAdopt")
+      .collection("donations-campaigns");
 
     //create user
     app.post("/users", async (req, res) => {
@@ -48,6 +51,13 @@ async function run() {
     app.get("/users", async (req, res) => {
       const result = await userCollection.find().toArray();
       res.send(result);
+    });
+
+    // GET /users/:email
+    app.get("/users/:email", async (req, res) => {
+      const email = req.params.email;
+      const user = await userCollection.findOne({ email });
+      res.send(user || {}); // Send empty object if not found
     });
 
     //put user
@@ -86,7 +96,7 @@ async function run() {
       const result = await petCollection.updateOne(filter, updateDoc);
       res.send(result);
     });
-    
+
     // READ - Get a specific pet by ID
     app.get("/pets/:id", async (req, res) => {
       const id = req.params.id;
@@ -97,7 +107,6 @@ async function run() {
       }
       res.send(pet);
     });
-    
 
     // DELETE - Delete a pet
     app.delete("/pets/:id", async (req, res) => {
@@ -107,7 +116,7 @@ async function run() {
       res.send(result);
     });
 
-    // PATCH - Mark as Adopted
+    // PATCH - Mark as pet Adopted
     app.patch("/pets/:id/adopt", async (req, res) => {
       const id = req.params.id;
       const filter = { _id: new ObjectId(id) };
@@ -117,6 +126,55 @@ async function run() {
         },
       };
       const result = await petCollection.updateOne(filter, updateDoc);
+      res.send(result);
+    });
+
+    //donations-campaigns post
+    app.post("/donations-campaigns", async (req, res) => {
+      const donation = req.body;
+      const result = await donationCollection.insertOne(donation);
+      res.send(result);
+    });
+
+    // READ - Get donations-campaigns (filtered by email if provided)
+    app.get("/donations-campaigns", async (req, res) => {
+      const email = req.query.email;
+      const query = { createdBy: email };
+      const result = await donationCollection.find(query).toArray();
+      res.send(result);
+    });
+
+    // Pause/unpause
+    app.patch("/donations-campaigns/:id/pause", async (req, res) => {
+      const id = req.params.id;
+      const { paused } = req.body;
+      const result = await donationCollection.updateOne(
+        { _id: new ObjectId(id) },
+        { $set: { paused } }
+      );
+      res.send(result);
+    });
+
+    // READ - Get a specific donation campaign by ID
+    app.get("/donations-campaigns/:id", async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const campaign = await donationCollection.findOne(query);
+      if (!campaign) {
+        return res.status(404).send({ message: "Campaign not found" });
+      }
+      res.send(campaign);
+    });
+
+    // put donation campaign
+    app.put("/donations-campaigns/:id", async (req, res) => {
+      const id = req.params.id;
+      const updatedData = req.body;
+      const filter = { _id: new ObjectId(id) };
+      const updateDoc = {
+        $set: updatedData,
+      };
+      const result = await donationCollection.updateOne(filter, updateDoc);
       res.send(result);
     });
 
