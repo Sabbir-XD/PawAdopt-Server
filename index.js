@@ -35,6 +35,41 @@ async function run() {
       .db("PetAdopt")
       .collection("donations-campaigns");
 
+    //Middleware Verify if the requester is an admin
+    const verifyAdmin = async (req, res, next) => {
+      const email = req.headers?.email;
+      if (!email) {
+        return res
+          .status(403)
+          .send({ error: "Forbidden: No email in headers" });
+      }
+
+      try {
+        const user = await userCollection.findOne({ email });
+        if (user?.role !== "admin") {
+          return res.status(403).send({ error: "Forbidden: Not an admin" });
+        }
+        next(); // Allow access
+      } catch (err) {
+        console.error("verifyAdmin error:", err);
+        res.status(500).send({ error: "Internal Server Error" });
+      }
+    };
+
+    //promote admin
+    app.patch("/users/admin/:id", verifyAdmin, async (req, res) => {
+      const userId = req.params.id;
+      try {
+        const filter = { _id: new ObjectId(userId) };
+        const updateDoc = { $set: { role: "admin" } };
+        const result = await userCollection.updateOne(filter, updateDoc);
+        res.send(result);
+      } catch (err) {
+        console.error("Promote admin error:", err);
+        res.status(500).send({ error: "Failed to promote user to admin" });
+      }
+    });
+
     //create user
     app.post("/users", async (req, res) => {
       const user = req.body;
@@ -108,26 +143,7 @@ async function run() {
       res.send(pet);
     });
 
-    // DELETE - Delete a pet
-    app.delete("/pets/:id", async (req, res) => {
-      const id = req.params.id;
-      const query = { _id: new ObjectId(id) };
-      const result = await petCollection.deleteOne(query);
-      res.send(result);
-    });
-
-    // PATCH - Mark as pet Adopted
-    app.patch("/pets/:id/adopt", async (req, res) => {
-      const id = req.params.id;
-      const filter = { _id: new ObjectId(id) };
-      const updateDoc = {
-        $set: {
-          adopted: true,
-        },
-      };
-      const result = await petCollection.updateOne(filter, updateDoc);
-      res.send(result);
-    });
+   
 
     //donations-campaigns post
     app.post("/donations-campaigns", async (req, res) => {
