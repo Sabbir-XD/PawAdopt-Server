@@ -143,7 +143,82 @@ async function run() {
       res.send(pet);
     });
 
-   
+    // DELETE - Delete a pet
+    app.delete("/pets/:id", async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const result = await petCollection.deleteOne(query);
+      res.send(result);
+    });
+
+    // PATCH - Mark as pet Adopted
+    app.patch("/pets/:id/adopt", async (req, res) => {
+      const id = req.params.id;
+      const filter = { _id: new ObjectId(id) };
+      const updateDoc = {
+        $set: {
+          adopted: true,
+        },
+      };
+      const result = await petCollection.updateOne(filter, updateDoc);
+      res.send(result);
+    });
+
+    
+
+    // ✅ Admin-only route to get all pets (no pagination)
+    app.get("/pets/admin", verifyAdmin, async (req, res) => {
+      try {
+        const pets = await petCollection.find().toArray();
+        res.send(pets);
+      } catch (err) {
+        console.error("Admin get all pets error:", err);
+        res.status(500).send({ error: "Failed to fetch pets" });
+      }
+    });
+
+    // Delete a pet (admin only)
+    app.delete("/pets/:id", verifyAdmin, async (req, res) => {
+      const id = req.params.id;
+      try {
+        const query = { _id: new ObjectId(id) };
+        const result = await petCollection.deleteOne(query);
+        res.send(result);
+      } catch (err) {
+        console.error("Delete pet error:", err);
+        res.status(500).send({ error: "Failed to delete pet" });
+      }
+    });
+
+    // Update a pet (admin only)
+    app.patch("/pets/:id", verifyAdmin, async (req, res) => {
+      const id = req.params.id;
+      const updatedData = req.body;
+      try {
+        const filter = { _id: new ObjectId(id) };
+        const updateDoc = { $set: updatedData };
+        const result = await petCollection.updateOne(filter, updateDoc);
+        res.send(result);
+      } catch (err) {
+        console.error("Update pet error:", err);
+        res.status(500).send({ error: "Failed to update pet" });
+      }
+    });
+
+    // Mark pet adopted or not (admin only)
+    app.patch("/pets/:id/adopt", verifyAdmin, async (req, res) => {
+      const id = req.params.id;
+      const { adopted } = req.body; // expect boolean true or false
+      try {
+        const filter = { _id: new ObjectId(id) };
+        const updateDoc = { $set: { adopted } };
+        const result = await petCollection.updateOne(filter, updateDoc);
+        res.send(result);
+      } catch (err) {
+        console.error("Update adopt status error:", err);
+        res.status(500).send({ error: "Failed to update adopt status" });
+      }
+    });
 
     //donations-campaigns post
     app.post("/donations-campaigns", async (req, res) => {
