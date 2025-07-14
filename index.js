@@ -35,6 +35,41 @@ async function run() {
       .db("PetAdopt")
       .collection("donations-campaigns");
     const adoptionCollection = client.db("PetAdopt").collection("adoptions");
+    const paymentCollection = client
+      .db("PetAdopt")
+      .collection("donations-payments");
+
+    // Required
+    const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY); // in your .env
+    
+
+    // CREATE - Add a new payment donation
+    app.post("/donations-payments", async (req, res) => {
+      const donation = req.body;
+      const result = await paymentCollection.insertOne(donation);
+      res.send(result);
+    });
+
+    //get payment
+    app.get("/donations-payments", async (req, res) => {
+      const result = await paymentCollection.find().toArray();
+      res.send(result);
+    });
+
+    // Payment intent route
+    app.post("/create-payment-intent", async (req, res) => {
+      const { amount } = req.body;
+
+      const paymentIntent = await stripe.paymentIntents.create({
+        amount: Math.round(amount * 100), // Stripe uses cents
+        currency: "usd",
+        payment_method_types: ["card"],
+      });
+
+      res.send({
+        clientSecret: paymentIntent.client_secret,
+      });
+    });
 
     //Middleware Verify if the requester is an admin
     const verifyAdmin = async (req, res, next) => {
@@ -331,7 +366,6 @@ async function run() {
       );
       res.send(result);
     });
-    
 
     // READ - Get a specific donation campaign by ID
     app.get("/donations-campaigns/:id", async (req, res) => {
@@ -343,7 +377,6 @@ async function run() {
       }
       res.send(campaign);
     });
-    
 
     // put donation campaign
     app.put("/donations-campaigns/:id", async (req, res) => {
@@ -356,7 +389,6 @@ async function run() {
       const result = await donationCollection.updateOne(filter, updateDoc);
       res.send(result);
     });
-    
 
     await client.db("admin").command({ ping: 1 });
     console.log(
