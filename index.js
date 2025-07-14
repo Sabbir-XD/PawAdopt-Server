@@ -108,11 +108,59 @@ async function run() {
     // CREATE - Add a new pet
     app.post("/pets", async (req, res) => {
       const pet = req.body;
+      pet.createdAt = new Date().toISOString();
       const result = await petCollection.insertOne(pet);
       res.send(result);
     });
+    
+    // READ - Get all pets with pagination and filtering options (search, category, adopted, email) and sorting by createdAt in descending order (default)
+    app.get("/pets/all", async (req, res) => {
+      try {
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 6;
+        const skip = (page - 1) * limit;
 
-    // READ - Get pets (filtered by email if provided)
+        const search = req.query.search || "";
+        const category = req.query.category || "";
+        const adopted = req.query.adopted === "false" ? false : undefined;
+        const email = req.query.email;
+
+        const query = {};
+
+        if (search) {
+          query.name = { $regex: search, $options: "i" };
+        }
+
+        if (category) {
+          query.category = category;
+        }
+
+        if (adopted !== undefined) {
+          query.adopted = adopted;
+        }
+
+        if (email) {
+          query.email = email;
+        }
+
+        const totalCount = await petCollection.countDocuments(query);
+
+        const pets = await petCollection
+          .find(query)
+          .sort({ createdAt: -1 })
+          .skip(skip)
+          .limit(limit)
+          .toArray();
+
+        const hasMore = skip + pets.length < totalCount;
+
+        res.send({ pets, hasMore });
+      } catch (error) {
+        console.error("GET /pets error:", error);
+        res.status(500).send({ error: "Failed to fetch pets" });
+      }
+    });
+
     app.get("/pets", async (req, res) => {
       const email = req.query.email;
       const query = email ? { email } : {};
@@ -163,8 +211,6 @@ async function run() {
       const result = await petCollection.updateOne(filter, updateDoc);
       res.send(result);
     });
-
-    
 
     // ✅ Admin-only route to get all pets (no pagination)
     app.get("/pets/admin", verifyAdmin, async (req, res) => {
