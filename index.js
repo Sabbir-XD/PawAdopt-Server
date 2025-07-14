@@ -34,6 +34,7 @@ async function run() {
     const donationCollection = client
       .db("PetAdopt")
       .collection("donations-campaigns");
+    const adoptionCollection = client.db("PetAdopt").collection("adoptions");
 
     //Middleware Verify if the requester is an admin
     const verifyAdmin = async (req, res, next) => {
@@ -112,7 +113,7 @@ async function run() {
       const result = await petCollection.insertOne(pet);
       res.send(result);
     });
-    
+
     // READ - Get all pets with pagination and filtering options (search, category, adopted, email) and sorting by createdAt in descending order (default)
     app.get("/pets/all", async (req, res) => {
       try {
@@ -266,6 +267,19 @@ async function run() {
       }
     });
 
+    //adoption post
+    app.post("/adoptions", async (req, res) => {
+      const adoption = req.body;
+      const result = await adoptionCollection.insertOne(adoption);
+      res.send(result);
+    });
+
+    //get the adoption
+    app.get("/adoptions", async (req, res) => {
+      const result = await adoptionCollection.find().toArray();
+      res.send(result);
+    });
+
     //donations-campaigns post
     app.post("/donations-campaigns", async (req, res) => {
       const donation = req.body;
@@ -273,8 +287,34 @@ async function run() {
       res.send(result);
     });
 
-    // READ - Get donations-campaigns (filtered by email if provided)
+    // READ - Get all donations-campaigns
     app.get("/donations-campaigns", async (req, res) => {
+      const page = parseInt(req.query.page) || 1;
+      const limit = parseInt(req.query.limit) || 6;
+
+      const skip = (page - 1) * limit;
+
+      const cursor = donationCollection
+        .find()
+        .sort({ createdAt: -1 }) // descending order
+        .skip(skip)
+        .limit(limit);
+
+      const campaigns = await cursor.toArray();
+      const total = await donationCollection.estimatedDocumentCount();
+
+      const hasMore = page * limit < total;
+      const nextPage = page + 1;
+
+      res.send({
+        campaigns,
+        nextPage,
+        hasMore,
+      });
+    });
+
+    // READ - Get all donations-campaigns by user
+    app.get("/donations-campaigns/user", async (req, res) => {
       const email = req.query.email;
       const query = { createdBy: email };
       const result = await donationCollection.find(query).toArray();
@@ -291,6 +331,7 @@ async function run() {
       );
       res.send(result);
     });
+    
 
     // READ - Get a specific donation campaign by ID
     app.get("/donations-campaigns/:id", async (req, res) => {
@@ -302,6 +343,7 @@ async function run() {
       }
       res.send(campaign);
     });
+    
 
     // put donation campaign
     app.put("/donations-campaigns/:id", async (req, res) => {
@@ -314,6 +356,7 @@ async function run() {
       const result = await donationCollection.updateOne(filter, updateDoc);
       res.send(result);
     });
+    
 
     await client.db("admin").command({ ping: 1 });
     console.log(
