@@ -178,23 +178,8 @@ async function run() {
       res.send(result);
     });
 
-   
-
-    // PATCH: Update status of adoption request (accept/reject)
-    app.patch("/adoptions/:id", async (req, res) => {
-      const id = req.params.id;
-      const { status } = req.body; // expect: "accepted" or "rejected"
-
-      if (!["accepted", "rejected"].includes(status)) {
-        return res.status(400).send({ error: "Invalid status" });
-      }
-
-      const result = await adoptionCollection.updateOne(
-        { _id: new ObjectId(id) },
-        { $set: { status } }
-      );
-      res.send(result);
-    });
+    // 🏠 ADOPTION ROUTES
+  
 
     // 💝 DONATION CAMPAIGN ROUTES
     app.post("/donations-campaigns", async (req, res) => {
