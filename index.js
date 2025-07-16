@@ -179,7 +179,50 @@ async function run() {
     });
 
     // 🏠 ADOPTION ROUTES
-  
+    app.post("/adoptions", async (req, res) => {
+      const adoption = req.body;
+      adoption.timestamp = new Date().toISOString();
+      adoption.status = "pending"; // default status
+      const result = await adoptionCollection.insertOne(adoption);
+      res.send(result);
+    });
+
+    // GET: Get adoption requests based on user's added pets (by email)
+    app.get("/adoptions", async (req, res) => {
+      const email = req.query.email;
+
+      let query = {};
+      if (email) {
+        query = { email: email }; // ownerEmail is the person who added the pet
+      }
+
+      try {
+        const result = await adoptionCollection
+          .find(query)
+          .sort({ timestamp: -1 })
+          .toArray();
+        res.send(result);
+      } catch (err) {
+        console.error("Failed to fetch adoptions:", err);
+        res.status(500).send({ error: "Failed to fetch adoptions" });
+      }
+    });
+
+    // PATCH: Update status of adoption request (accept/reject)
+    app.patch("/adoptions/:id", async (req, res) => {
+      const id = req.params.id;
+      const { status } = req.body; // expect: "accepted" or "rejected"
+
+      if (!["accepted", "rejected"].includes(status)) {
+        return res.status(400).send({ error: "Invalid status" });
+      }
+
+      const result = await adoptionCollection.updateOne(
+        { _id: new ObjectId(id) },
+        { $set: { status } }
+      );
+      res.send(result);
+    });
 
     // 💝 DONATION CAMPAIGN ROUTES
     app.post("/donations-campaigns", async (req, res) => {
