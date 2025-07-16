@@ -4,9 +4,15 @@ const app = express();
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const cors = require("cors");
 const port = process.env.PORT || 5000;
-require("dotenv").config();
+const jwt = require("jsonwebtoken");
+const cookieParser = require("cookie-parser");
 
-app.use(cors());
+require("dotenv").config();
+app.use(cookieParser());
+app.use(cors({
+  origin: 'http://localhost:5173', // ✅ React App URL
+  credentials: true                // ✅ Allow sending cookies
+}));
 app.use(express.json());
 
 // 🌐 MongoDB URI
@@ -26,6 +32,42 @@ app.get("/", (req, res) => {
   res.send("Assignment 12 is running");
 });
 
+// 🔐 Middleware to verify JWT
+const verifyJWT = (req, res, next) => {
+  const token = req.cookies.token;
+
+  if (!token) {
+    return res.status(401).send({ message: "Unauthorized access" });
+  }
+
+  jwt.verify(token, process.env.JWT_SECRET, (err, decoded) => {
+    if (err) return res.status(401).send({ message: "Forbidden" });
+    req.user = decoded; // instead of req.decoded
+    next();
+  });
+};
+
+const verifyAdmin = (req, res, next) => {
+  const role = req.user?.role;
+  if (role !== "admin") {
+    return res.status(403).send({ error: "Forbidden: Admins only" });
+  }
+  next();
+};
+
+// // 🔐 Middleware to verify admin
+// const verifyAdmin = async (req, res, next) => {
+//   const email = req.headers?.email;
+//   if (!email)
+//     return res.status(403).send({ error: "Forbidden: No email in headers" });
+
+//   const user = await userCollection.findOne({ email });
+//   if (user?.role !== "admin") {
+//     return res.status(403).send({ error: "Forbidden: Not an admin" });
+//   }
+//   next();
+// };
+
 async function run() {
   try {
     await client.connect();
@@ -44,20 +86,41 @@ async function run() {
     // 💳 Stripe Setup
     const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 
-    // 🔐 Middleware to verify admin
-    const verifyAdmin = async (req, res, next) => {
-      const email = req.headers?.email;
-      if (!email)
-        return res
-          .status(403)
-          .send({ error: "Forbidden: No email in headers" });
+    // 🧑‍💼 JWT ROUTES
+    app.post("/jwt", async (req, res) => {
+      const user = req.body;
 
-      const user = await userCollection.findOne({ email });
-      if (user?.role !== "admin") {
-        return res.status(403).send({ error: "Forbidden: Not an admin" });
-      }
-      next();
-    };
+      const dbUser = await userCollection.findOne({ email: user.email });
+      if (!dbUser) return res.status(404).send({ error: "User not found" });
+
+      const token = jwt.sign(
+        {
+          email: dbUser.email,
+          role: dbUser.role || "user",
+        },
+        process.env.JWT_SECRET,
+        { expiresIn: "7d" }
+      );
+
+      res
+        .cookie("token", token, {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === "production",
+          sameSite: "strict",
+          maxAge: 7 * 24 * 60 * 60 * 1000,
+        })
+        .send({ success: true });
+    });
+
+    // 🧑‍💼 LOGOUT
+    app.post("/logout", (req, res) => {
+      res.clearCookie("token", {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "None",
+      });
+      res.status(200).json({ message: "Logged out successfully" });
+    });
 
     // 🧑‍💼 USER ROUTES
     app.post("/users", async (req, res) => {
@@ -69,13 +132,23 @@ async function run() {
       res.send(result);
     });
 
-    app.get("/users", async (req, res) => {
+    // app.get("/users", async (req, res) => {
+    //   const result = await userCollection.find().toArray();
+    //   res.send(result);
+    // });
+
+    app.get("/users", verifyJWT, verifyAdmin, async (req, res) => {
       const result = await userCollection.find().toArray();
       res.send(result);
     });
 
-    app.get("/users/:email", async (req, res) => {
+    app.get("/users/:email", verifyJWT, async (req, res) => {
       const email = req.params.email;
+
+      if (req.user.email !== email && req.user.role !== "admin") {
+        return res.status(403).send({ error: "Forbidden" });
+      }
+
       const user = await userCollection.findOne({ email });
       res.send(user || {});
     });
@@ -163,8 +236,27 @@ async function run() {
       res.send(result);
     });
 
-    app.patch("/pets/:id/adopt", async (req, res) => {
+    // app.patch("/pets/:id/adopt", async (req, res) => {
+    //   const id = req.params.id;
+    //   const { adopted } = req.body || { adopted: true };
+    //   const result = await petCollection.updateOne(
+    //     { _id: new ObjectId(id) },
+    //     { $set: { adopted } }
+    //   );
+    //   res.send(result);
+    // });
+
+    app.patch("/pets/:id/adopt", verifyJWT, async (req, res) => {
       const id = req.params.id;
+      const pet = await petCollection.findOne({ _id: new ObjectId(id) });
+
+      if (!pet) return res.status(404).send({ error: "Pet not found" });
+
+      // Optional restriction: only owner or admin
+      if (pet.email !== req.user.email && req.user.role !== "admin") {
+        return res.status(403).send({ error: "Forbidden" });
+      }
+
       const { adopted } = req.body || { adopted: true };
       const result = await petCollection.updateOne(
         { _id: new ObjectId(id) },
@@ -245,8 +337,12 @@ async function run() {
       res.send({ campaigns, nextPage: page + 1, hasMore });
     });
 
-    app.get("/donations-campaigns/user", async (req, res) => {
+    app.get("/donations-campaigns/user", verifyJWT, async (req, res) => {
       const email = req.query.email;
+      if (req.user.email !== email) {
+        return res.status(403).send({ error: "Forbidden: Email mismatch" });
+      }
+
       const result = await donationCollection
         .find({ createdBy: email })
         .toArray();
@@ -296,8 +392,12 @@ async function run() {
       res.send(result);
     });
 
-    app.get("/donations-payments/user", async (req, res) => {
+    app.get("/donations-payments/user", verifyJWT, async (req, res) => {
       const email = req.query.email;
+      if (req.user.email !== email) {
+        return res.status(403).send({ error: "Unauthorized access" });
+      }
+
       const result = await paymentCollection
         .find({ donatorEmail: email })
         .sort({ createdAt: -1 })
@@ -322,6 +422,133 @@ async function run() {
       });
       res.send({ clientSecret: paymentIntent.client_secret });
     });
+
+    //dynamic dashboard for admin and user for conditional
+    app.get("/dashboard-stats", verifyJWT, async (req, res) => {
+      const email = req.query.email;
+      if (req.user.email !== email) {
+        return res.status(403).send({ error: "Forbidden access" });
+      }
+
+      const user = await userCollection.findOne({ email });
+      if (!user) return res.status(403).send({ error: "Unauthorized user" });
+
+      if (user.role === "admin") {
+        const [totalUsers, totalPets, totalCampaigns, totalDonations] =
+          await Promise.all([
+            userCollection.estimatedDocumentCount(),
+            petCollection.estimatedDocumentCount(),
+            donationCollection.estimatedDocumentCount(),
+            paymentCollection
+              .aggregate([
+                { $group: { _id: null, total: { $sum: "$amount" } } },
+              ])
+              .toArray(),
+          ]);
+
+        res.send({
+          role: "admin",
+          totalUsers,
+          totalPets,
+          totalCampaigns,
+          totalDonationAmount: totalDonations[0]?.total || 0,
+        });
+      } else {
+        const [myPets, myDonations, myCampaigns] = await Promise.all([
+          petCollection.countDocuments({ email }),
+          paymentCollection
+            .aggregate([
+              { $match: { donatorEmail: email } },
+              { $group: { _id: null, total: { $sum: "$amount" } } },
+            ])
+            .toArray(),
+          donationCollection.countDocuments({ createdBy: email }),
+        ]);
+
+        res.send({
+          role: "user",
+          myPets,
+          myDonations: myDonations[0]?.total || 0,
+          myCampaigns,
+        });
+      }
+    });
+
+    app.get(
+      "/dashboard/pets-by-category",
+      verifyJWT,
+      verifyAdmin,
+      async (req, res) => {
+        const result = await petCollection
+          .aggregate([
+            {
+              $group: {
+                _id: "$category",
+                count: { $sum: 1 },
+              },
+            },
+            {
+              $project: {
+                _id: 0,
+                category: "$_id",
+                count: 1,
+              },
+            },
+          ])
+          .toArray();
+
+        res.send(result);
+      }
+    );
+
+    app.get("/dashboard/adoption-summary", verifyAdmin, async (req, res) => {
+      const result = await adoptionCollection
+        .aggregate([
+          {
+            $group: {
+              _id: "$status",
+              count: { $sum: 1 },
+            },
+          },
+        ])
+        .toArray();
+
+      let summary = {
+        pending: 0,
+        accepted: 0,
+        rejected: 0,
+        total: 0,
+      };
+
+      result.forEach((item) => {
+        summary[item._id] = item.count;
+        summary.total += item.count;
+      });
+
+      res.send(summary);
+    });
+
+    app.get(
+      "/dashboard/user-donations-breakdown",
+      verifyJWT,
+      async (req, res) => {
+        const email = req.query.email;
+        if (req.user.email !== email) {
+          return res.status(403).send({ error: "Unauthorized access" });
+        }
+
+        const result = await paymentCollection
+          .aggregate([
+            { $match: { donatorEmail: email } },
+            { $group: { _id: "$campaignTitle", total: { $sum: "$amount" } } },
+            { $project: { _id: 0, campaign: "$_id", total: 1 } },
+            { $sort: { total: -1 } },
+          ])
+          .toArray();
+
+        res.send(result);
+      }
+    );
 
     // ✅ MongoDB Ping
     await client.db("admin").command({ ping: 1 });
