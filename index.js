@@ -8,11 +8,13 @@ const jwt = require("jsonwebtoken");
 const cookieParser = require("cookie-parser");
 
 require("dotenv").config();
+app.use(
+  cors({
+    origin: ["http://localhost:5173"], // ✅ React App URL
+    credentials: true, // ✅ Allow sending cookies
+  })
+);
 app.use(cookieParser());
-app.use(cors({
-  origin: 'http://localhost:5173', // ✅ React App URL
-  credentials: true                // ✅ Allow sending cookies
-}));
 app.use(express.json());
 
 // 🌐 MongoDB URI
@@ -34,14 +36,14 @@ app.get("/", (req, res) => {
 
 // 🔐 Middleware to verify JWT
 const verifyJWT = (req, res, next) => {
-  const token = req.cookies.token;
+  const token = req?.cookies?.token;
 
   if (!token) {
     return res.status(401).send({ message: "Unauthorized access" });
   }
 
   jwt.verify(token, process.env.JWT_SECRET, (err, decoded) => {
-    if (err) return res.status(401).send({ message: "Forbidden" });
+    if (err) return res.status(401).send({ message: "Unauthorized access" });
     req.user = decoded; // instead of req.decoded
     next();
   });
@@ -186,7 +188,7 @@ async function run() {
       res.send(result);
     });
 
-    app.get("/pets/all", async (req, res) => {
+    app.get("/pets/all", verifyJWT, async (req, res) => {
       const page = parseInt(req.query.page) || 1;
       const limit = parseInt(req.query.limit) || 6;
       const skip = (page - 1) * limit;
@@ -220,7 +222,7 @@ async function run() {
       res.send(pet);
     });
 
-    app.patch("/pets/:id", async (req, res) => {
+    app.patch("/pets/:id", verifyJWT, async (req, res) => {
       const id = req.params.id;
       const update = { $set: req.body };
       const result = await petCollection.updateOne(
@@ -424,11 +426,8 @@ async function run() {
     });
 
     //dynamic dashboard for admin and user for conditional
-    app.get("/dashboard-stats", verifyJWT, async (req, res) => {
+    app.get("/dashboard-stats", verifyJWT, verifyAdmin, async (req, res) => {
       const email = req.query.email;
-      if (req.user.email !== email) {
-        return res.status(403).send({ error: "Forbidden access" });
-      }
 
       const user = await userCollection.findOne({ email });
       if (!user) return res.status(403).send({ error: "Unauthorized user" });
@@ -474,34 +473,29 @@ async function run() {
       }
     });
 
-    app.get(
-      "/dashboard/pets-by-category",
-      verifyJWT,
-      verifyAdmin,
-      async (req, res) => {
-        const result = await petCollection
-          .aggregate([
-            {
-              $group: {
-                _id: "$category",
-                count: { $sum: 1 },
-              },
+    app.get("/dashboard/pets-by-category", async (req, res) => {
+      const result = await petCollection
+        .aggregate([
+          {
+            $group: {
+              _id: "$category",
+              count: { $sum: 1 },
             },
-            {
-              $project: {
-                _id: 0,
-                category: "$_id",
-                count: 1,
-              },
+          },
+          {
+            $project: {
+              _id: 0,
+              category: "$_id",
+              count: 1,
             },
-          ])
-          .toArray();
+          },
+        ])
+        .toArray();
 
-        res.send(result);
-      }
-    );
+      res.send(result);
+    });
 
-    app.get("/dashboard/adoption-summary", verifyAdmin, async (req, res) => {
+    app.get("/dashboard/adoption-summary", async (req, res) => {
       const result = await adoptionCollection
         .aggregate([
           {
@@ -533,9 +527,6 @@ async function run() {
       verifyJWT,
       async (req, res) => {
         const email = req.query.email;
-        if (req.user.email !== email) {
-          return res.status(403).send({ error: "Unauthorized access" });
-        }
 
         const result = await paymentCollection
           .aggregate([
