@@ -57,19 +57,6 @@ const verifyAdmin = (req, res, next) => {
   next();
 };
 
-// // 🔐 Middleware to verify admin
-// const verifyAdmin = async (req, res, next) => {
-//   const email = req.headers?.email;
-//   if (!email)
-//     return res.status(403).send({ error: "Forbidden: No email in headers" });
-
-//   const user = await userCollection.findOne({ email });
-//   if (user?.role !== "admin") {
-//     return res.status(403).send({ error: "Forbidden: Not an admin" });
-//   }
-//   next();
-// };
-
 async function run() {
   try {
     await client.connect();
@@ -133,11 +120,6 @@ async function run() {
       const result = await userCollection.insertOne(user);
       res.send(result);
     });
-
-    // app.get("/users", async (req, res) => {
-    //   const result = await userCollection.find().toArray();
-    //   res.send(result);
-    // });
 
     app.get("/users", verifyJWT, verifyAdmin, async (req, res) => {
       const result = await userCollection.find().toArray();
@@ -383,6 +365,51 @@ async function run() {
       res.send(result);
     });
 
+    app.get("/donations-campaigns/recommended", async (req, res) => {
+      try {
+        const result = await donationCollection
+          .aggregate([
+            {
+              $match: {
+                paused: false,
+                deadline: { $gt: new Date() },
+              },
+            },
+            {
+              $addFields: {
+                urgency: { $ifNull: ["$urgency", 0] },
+                currentDonationAmount: {
+                  $ifNull: ["$currentDonationAmount", 0],
+                },
+                createdAt: {
+                  $cond: [
+                    { $not: ["$createdAt"] },
+                    new Date("2000-01-01"),
+                    "$createdAt",
+                  ],
+                },
+              },
+            },
+            {
+              $sort: {
+                urgency: -1,
+                currentDonationAmount: 1,
+                createdAt: -1,
+              },
+            },
+            { $limit: 3 },
+          ])
+          .toArray();
+
+        res.json(result);
+      } catch (error) {
+        console.error("🔥 Recommended campaigns error:", error);
+        res
+          .status(500)
+          .json({ error: "Failed to fetch recommended campaigns" });
+      }
+    });
+
     // 💰 DONATION PAYMENT ROUTES
     app.post("/donations-payments", async (req, res) => {
       const result = await paymentCollection.insertOne(req.body);
@@ -426,7 +453,7 @@ async function run() {
     });
 
     //dynamic dashboard for admin and user for conditional
-    app.get("/dashboard-stats", verifyJWT, verifyAdmin, async (req, res) => {
+    app.get("/dashboard-stats", verifyJWT, async (req, res) => {
       const email = req.query.email;
 
       const user = await userCollection.findOne({ email });
@@ -495,32 +522,37 @@ async function run() {
       res.send(result);
     });
 
-    app.get("/dashboard/adoption-summary", async (req, res) => {
-      const result = await adoptionCollection
-        .aggregate([
-          {
-            $group: {
-              _id: "$status",
-              count: { $sum: 1 },
+    app.get(
+      "/dashboard/adoption-summary",
+      verifyJWT,
+      verifyAdmin,
+      async (req, res) => {
+        const result = await adoptionCollection
+          .aggregate([
+            {
+              $group: {
+                _id: "$status",
+                count: { $sum: 1 },
+              },
             },
-          },
-        ])
-        .toArray();
+          ])
+          .toArray();
 
-      let summary = {
-        pending: 0,
-        accepted: 0,
-        rejected: 0,
-        total: 0,
-      };
+        let summary = {
+          pending: 0,
+          accepted: 0,
+          rejected: 0,
+          total: 0,
+        };
 
-      result.forEach((item) => {
-        summary[item._id] = item.count;
-        summary.total += item.count;
-      });
+        result.forEach((item) => {
+          summary[item._id] = item.count;
+          summary.total += item.count;
+        });
 
-      res.send(summary);
-    });
+        res.send(summary);
+      }
+    );
 
     app.get(
       "/dashboard/user-donations-breakdown",
