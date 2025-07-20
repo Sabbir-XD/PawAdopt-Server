@@ -127,14 +127,28 @@ async function run() {
     });
 
     app.get("/users/:email", verifyJWT, async (req, res) => {
-      const email = req.params.email;
+      const requestedEmail = req.params.email;
+      const authenticatedUser = req.user;
 
-      if (req.user.email !== email && req.user.role !== "admin") {
-        return res.status(403).send({ error: "Forbidden" });
+      if (
+        authenticatedUser.email !== requestedEmail &&
+        authenticatedUser.role !== "admin"
+      ) {
+        return res.status(403).send({ error: "⛔ Forbidden access" });
       }
 
-      const user = await userCollection.findOne({ email });
-      res.send(user || {});
+      try {
+        const user = await userCollection.findOne({ email: requestedEmail });
+
+        if (!user) {
+          return res.status(404).send({ error: "User not found" });
+        }
+
+        res.send(user);
+      } catch (error) {
+        console.error("❌ Error fetching user:", error);
+        res.status(500).send({ error: "Internal Server Error" });
+      }
     });
 
     app.put("/users", async (req, res) => {
@@ -144,6 +158,28 @@ async function run() {
       const options = { upsert: true };
       const result = await userCollection.updateOne(filter, update, options);
       res.send(result);
+    });
+
+    app.patch("/users/:email", verifyJWT, async (req, res) => {
+      const email = req.params.email;
+      const updateFields = req.body;
+      console.log(updateFields);
+
+      try {
+        const result = await userCollection.updateOne(
+          { email },
+          { $set: updateFields }
+        );
+
+        if (result.matchedCount === 0) {
+          return res.status(404).send({ error: "User not found" });
+        }
+
+        res.send({ message: "User updated successfully", result });
+      } catch (error) {
+        console.error("Update error:", error);
+        res.status(500).send({ error: "Internal server error" });
+      }
     });
 
     app.patch("/users/admin/:id", verifyAdmin, async (req, res) => {
@@ -333,13 +369,37 @@ async function run() {
       res.send(result);
     });
 
+    // app.get("/donations-campaigns/:id", async (req, res) => {
+    //   const result = await donationCollection.findOne({
+    //     _id: new ObjectId(req.params.id),
+    //   });
+    //   if (!result)
+    //     return res.status(404).send({ message: "Campaign not found" });
+    //   res.send(result);
+    // });
+
     app.get("/donations-campaigns/:id", async (req, res) => {
-      const result = await donationCollection.findOne({
-        _id: new ObjectId(req.params.id),
-      });
-      if (!result)
-        return res.status(404).send({ message: "Campaign not found" });
-      res.send(result);
+      const id = req.params.id;
+
+      // ✅ Check if id is a valid ObjectId
+      if (!ObjectId.isValid(id)) {
+        return res.status(400).send({ error: "Invalid campaign ID" });
+      }
+
+      try {
+        const result = await donationCollection.findOne({
+          _id: new ObjectId(id),
+        });
+
+        if (!result) {
+          return res.status(404).send({ message: "Campaign not found" });
+        }
+
+        res.send(result);
+      } catch (error) {
+        console.error("🔥 Error fetching donation campaign by ID:", error);
+        res.status(500).send({ error: "Server error while fetching campaign" });
+      }
     });
 
     app.put("/donations-campaigns/:id", async (req, res) => {
@@ -372,22 +432,6 @@ async function run() {
             {
               $match: {
                 paused: false,
-                deadline: { $gt: new Date() },
-              },
-            },
-            {
-              $addFields: {
-                urgency: { $ifNull: ["$urgency", 0] },
-                currentDonationAmount: {
-                  $ifNull: ["$currentDonationAmount", 0],
-                },
-                createdAt: {
-                  $cond: [
-                    { $not: ["$createdAt"] },
-                    new Date("2000-01-01"),
-                    "$createdAt",
-                  ],
-                },
               },
             },
             {
@@ -400,6 +444,8 @@ async function run() {
             { $limit: 3 },
           ])
           .toArray();
+
+        console.log("🔁 Recommended campaigns result:", result); // Debugging log
 
         res.json(result);
       } catch (error) {
