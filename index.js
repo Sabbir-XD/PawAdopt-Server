@@ -1,3 +1,4 @@
+require("dotenv").config();
 // 🌐 Basic Setup
 const express = require("express");
 const app = express();
@@ -7,7 +8,6 @@ const port = process.env.PORT || 5000;
 const jwt = require("jsonwebtoken");
 const cookieParser = require("cookie-parser");
 
-require("dotenv").config();
 app.use(
   cors({
     origin: ["http://localhost:5173"], // ✅ React App URL
@@ -163,7 +163,6 @@ async function run() {
     app.patch("/users/:email", verifyJWT, async (req, res) => {
       const email = req.params.email;
       const updateFields = req.body;
-      console.log(updateFields);
 
       try {
         const result = await userCollection.updateOne(
@@ -255,16 +254,6 @@ async function run() {
       const result = await petCollection.deleteOne({ _id: new ObjectId(id) });
       res.send(result);
     });
-
-    // app.patch("/pets/:id/adopt", async (req, res) => {
-    //   const id = req.params.id;
-    //   const { adopted } = req.body || { adopted: true };
-    //   const result = await petCollection.updateOne(
-    //     { _id: new ObjectId(id) },
-    //     { $set: { adopted } }
-    //   );
-    //   res.send(result);
-    // });
 
     app.patch("/pets/:id/adopt", verifyJWT, async (req, res) => {
       const id = req.params.id;
@@ -369,15 +358,6 @@ async function run() {
       res.send(result);
     });
 
-    // app.get("/donations-campaigns/:id", async (req, res) => {
-    //   const result = await donationCollection.findOne({
-    //     _id: new ObjectId(req.params.id),
-    //   });
-    //   if (!result)
-    //     return res.status(404).send({ message: "Campaign not found" });
-    //   res.send(result);
-    // });
-
     app.get("/donations-campaigns/:id", async (req, res) => {
       const id = req.params.id;
 
@@ -425,15 +405,21 @@ async function run() {
       res.send(result);
     });
 
-    app.get("/donations-campaigns/recommended", async (req, res) => {
+    // GET recommended campaigns, excluding the current one
+    app.get("/recommended-campaigns", async (req, res) => {
       try {
+        const { excludeId } = req.query;
+
+        const matchStage = { paused: false };
+
+        // ✅ Proper ObjectId validation
+        if (excludeId && ObjectId.isValid(excludeId)) {
+          matchStage._id = { $ne: new ObjectId(excludeId) };
+        }
+
         const result = await donationCollection
           .aggregate([
-            {
-              $match: {
-                paused: false,
-              },
-            },
+            { $match: matchStage },
             {
               $sort: {
                 urgency: -1,
@@ -444,8 +430,6 @@ async function run() {
             { $limit: 3 },
           ])
           .toArray();
-
-        console.log("🔁 Recommended campaigns result:", result); // Debugging log
 
         res.json(result);
       } catch (error) {
@@ -620,8 +604,8 @@ async function run() {
     );
 
     // ✅ MongoDB Ping
-    await client.db("admin").command({ ping: 1 });
-    console.log("✅ Connected to MongoDB!");
+    // await client.db("admin").command({ ping: 1 });
+    // console.log("✅ Connected to MongoDB!");
   } finally {
     // await client.close(); // Optional
   }
@@ -630,5 +614,5 @@ run().catch(console.dir);
 
 // 🚀 Start Server
 app.listen(port, () => {
-  console.log("PetAdoption listening on port", port);
+  // console.log("PetAdoption listening on port", port);
 });
