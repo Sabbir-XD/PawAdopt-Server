@@ -228,7 +228,13 @@ async function run() {
       res.send(result);
     });
 
-    app.delete("/pets/:id", verifyAdmin, async (req, res) => {
+    app.delete("/pets/:id", verifyJWT, async (req, res) => {
+      const id = req.params.id;
+      const result = await petCollection.deleteOne({ _id: new ObjectId(id) });
+      res.send(result);
+    });
+
+    app.delete("/pets/:id", verifyJWT, verifyAdmin, async (req, res) => {
       const id = req.params.id;
       const result = await petCollection.deleteOne({ _id: new ObjectId(id) });
       res.send(result);
@@ -268,22 +274,28 @@ async function run() {
     });
 
     // GET: Get adoption requests based on user's added pets (by email)
-    app.get("/adoptions", async (req, res) => {
-      const email = req.query.email;
 
-      let query = {};
-      if (email) {
-        query = { email: email }; // ownerEmail is the person who added the pet
-      }
+    app.get("/adoptions", verifyJWT, async (req, res) => {
+      const email = req.query.email; // owner email
+      if (!email) return res.status(400).send({ error: "Email required" });
 
       try {
+        const pets = await petCollection
+          .find({ email })
+          .project({ _id: 1 })
+          .toArray();
+        const petIds = pets.map((p) => p._id.toString());
+
+        if (petIds.length === 0) return res.send([]);
+
         const result = await adoptionCollection
-          .find(query)
+          .find({ petId: { $in: petIds } })
           .sort({ timestamp: -1 })
           .toArray();
+
         res.send(result);
       } catch (err) {
-        console.error("Failed to fetch adoptions:", err);
+        console.error(err);
         res.status(500).send({ error: "Failed to fetch adoptions" });
       }
     });
