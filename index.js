@@ -6,15 +6,10 @@ const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const cors = require("cors");
 const port = process.env.PORT || 5000;
 const jwt = require("jsonwebtoken");
-const cookieParser = require("cookie-parser");
+// const cookieParser = require("cookie-parser");
 
-app.use(
-  cors({
-    origin: ["http://localhost:5173"], // ✅ React App URL
-    credentials: true, // ✅ Allow sending cookies
-  })
-);
-app.use(cookieParser());
+app.use(cors());
+// app.use(cookieParser());
 app.use(express.json());
 
 // 🌐 MongoDB URI
@@ -36,7 +31,8 @@ app.get("/", (req, res) => {
 
 // 🔐 Middleware to verify JWT
 const verifyJWT = (req, res, next) => {
-  const token = req?.cookies?.token;
+  const token = req?.headers?.authorization?.split(" ")[1];
+  console.log(token);
 
   if (!token) {
     return res.status(401).send({ message: "Unauthorized access" });
@@ -59,7 +55,7 @@ const verifyAdmin = (req, res, next) => {
 
 async function run() {
   try {
-    await client.connect();
+    // await client.connect();
 
     // 📦 Collections
     const userCollection = client.db("PetAdopt").collection("users");
@@ -91,24 +87,7 @@ async function run() {
         { expiresIn: "7d" }
       );
 
-      res
-        .cookie("token", token, {
-          httpOnly: true,
-          secure: process.env.NODE_ENV === "production",
-          sameSite: "strict",
-          maxAge: 7 * 24 * 60 * 60 * 1000,
-        })
-        .send({ success: true });
-    });
-
-    // 🧑‍💼 LOGOUT
-    app.post("/logout", (req, res) => {
-      res.clearCookie("token", {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: "None",
-      });
-      res.status(200).json({ message: "Logged out successfully" });
+      res.send({ success: true, token: token });
     });
 
     // 🧑‍💼 USER ROUTES
@@ -205,7 +184,7 @@ async function run() {
       res.send(result);
     });
 
-    app.get("/pets/all", verifyJWT, async (req, res) => {
+    app.get("/pets/all", async (req, res) => {
       const page = parseInt(req.query.page) || 1;
       const limit = parseInt(req.query.limit) || 6;
       const skip = (page - 1) * limit;
@@ -232,7 +211,7 @@ async function run() {
       res.send({ pets, hasMore });
     });
 
-    app.get("/pets/:id", async (req, res) => {
+    app.get("/pets/:id", verifyJWT, async (req, res) => {
       const id = req.params.id;
       const pet = await petCollection.findOne({ _id: new ObjectId(id) });
       if (!pet) return res.status(404).send({ message: "Pet not found" });
