@@ -322,6 +322,50 @@ async function run() {
       res.send(result);
     });
 
+    app.get("/donation-user-campaigns", verifyJWT, async (req, res) => {
+      const email = req.query.email;
+      if (req.user.email !== email) {
+        return res.status(403).send({ error: "Forbidden: Email mismatch" });
+      }
+
+      try {
+        const campaigns = await donationCollection
+          .aggregate([
+            { $match: { createdBy: email } },
+            {
+              $addFields: {
+                _idStr: { $toString: "$_id" }, // Convert ObjectId to string
+              },
+            },
+            {
+              $lookup: {
+                from: "donations-payments",
+                localField: "_idStr",
+                foreignField: "campaignId",
+                as: "donations",
+              },
+            },
+            {
+              $addFields: {
+                totalDonated: { $sum: "$donations.amount" },
+              },
+            },
+            {
+              $project: {
+                donations: 0,
+                _idStr: 0,
+              },
+            },
+          ])
+          .toArray();
+
+        res.send(campaigns);
+      } catch (error) {
+        console.error("Error fetching user campaigns:", error);
+        res.status(500).send({ error: "Failed to fetch campaigns" });
+      }
+    });
+
     app.get("/donations-campaigns", async (req, res) => {
       const page = parseInt(req.query.page) || 1;
       const limit = parseInt(req.query.limit) || 6;
@@ -337,39 +381,71 @@ async function run() {
       res.send({ campaigns, nextPage: page + 1, hasMore });
     });
 
-    app.get("/donations-campaigns/user", verifyJWT, async (req, res) => {
-      const email = req.query.email;
-      if (req.user.email !== email) {
-        return res.status(403).send({ error: "Forbidden: Email mismatch" });
-      }
+    // app.get("/donations-campaigns/:id", async (req, res) => {
+    //   const id = req.params.id;
 
-      const result = await donationCollection
-        .find({ createdBy: email })
-        .toArray();
-      res.send(result);
-    });
+    //   // ✅ Check if id is a valid ObjectId
+    //   if (!ObjectId.isValid(id)) {
+    //     return res.status(400).send({ error: "Invalid campaign ID" });
+    //   }
+
+    //   try {
+    //     const result = await donationCollection.findOne({
+    //       _id: new ObjectId(id),
+    //     });
+
+    //     if (!result) {
+    //       return res.status(404).send({ message: "Campaign not found" });
+    //     }
+
+    //     res.send(result);
+    //   } catch (error) {
+    //     console.error("🔥 Error fetching donation campaign by ID:", error);
+    //     res.status(500).send({ error: "Server error while fetching campaign" });
+    //   }
+    // });
 
     app.get("/donations-campaigns/:id", async (req, res) => {
-      const id = req.params.id;
-
-      // ✅ Check if id is a valid ObjectId
-      if (!ObjectId.isValid(id)) {
-        return res.status(400).send({ error: "Invalid campaign ID" });
-      }
-
+      const { id } = req.params;
       try {
-        const result = await donationCollection.findOne({
-          _id: new ObjectId(id),
-        });
+        const campaign = await donationCollection
+          .aggregate([
+            { $match: { _id: new ObjectId(id) } },
+            {
+              $addFields: {
+                _idStr: { $toString: "$_id" }, // ObjectId to string
+              },
+            },
+            {
+              $lookup: {
+                from: "donations-payments",
+                localField: "_idStr",
+                foreignField: "campaignId",
+                as: "donations",
+              },
+            },
+            {
+              $addFields: {
+                currentDonationAmount: { $sum: "$donations.amount" },
+              },
+            },
+            {
+              $project: {
+                donations: 0,
+                _idStr: 0,
+              },
+            },
+          ])
+          .toArray();
 
-        if (!result) {
-          return res.status(404).send({ message: "Campaign not found" });
+        if (!campaign.length) {
+          return res.status(404).send({ error: "Campaign not found" });
         }
 
-        res.send(result);
+        res.send(campaign[0]);
       } catch (error) {
-        console.error("🔥 Error fetching donation campaign by ID:", error);
-        res.status(500).send({ error: "Server error while fetching campaign" });
+        console.error("Error fetching campaign:", error);
+        res.status(500).send({ error: "Failed to fetch campaign" });
       }
     });
 
@@ -388,6 +464,42 @@ async function run() {
       );
       res.send(result);
     });
+
+    app.get(
+      "/donations-campaigns/:id/donators",
+      verifyJWT,
+      async (req, res) => {
+        const campaignId = req.params.id;
+
+        try {
+          let query = { campaignId: campaignId };
+          if (ObjectId.isValid(campaignId)) {
+            query = {
+              $or: [
+                { campaignId: campaignId },
+                { campaignId: new ObjectId(campaignId) },
+              ],
+            };
+          }
+
+          const donators = await paymentCollection
+            .find(query)
+            .project({ donatorEmail: 1, donatorName: 1, amount: 1, _id: 0 })
+            .toArray();
+
+          res.send(
+            donators.map((d) => ({
+              email: d.donatorEmail,
+              name: d.donatorName,
+              amount: d.amount,
+            }))
+          );
+        } catch (error) {
+          console.error("Error fetching donators:", error);
+          res.status(500).send({ error: "Failed to fetch donators" });
+        }
+      }
+    );
 
     app.delete("/donations-campaigns/:id", async (req, res) => {
       const result = await donationCollection.deleteOne({
@@ -428,6 +540,53 @@ async function run() {
         res
           .status(500)
           .json({ error: "Failed to fetch recommended campaigns" });
+      }
+    });
+
+    app.get("/dashboard/user-adoption-stats", verifyJWT, async (req, res) => {
+      const email = req.query.email;
+
+      if (!email) {
+        return res.status(400).send({ error: "Email is required" });
+      }
+
+      if (req.user.email !== email) {
+        return res.status(403).send({ error: "Forbidden: Email mismatch" });
+      }
+
+      try {
+        // adoption count by status
+        const totalAdoptions = await adoptionCollection.countDocuments({
+          email,
+          status: "approved",
+        });
+        const pendingAdoptions = await adoptionCollection.countDocuments({
+          email,
+          status: "pending",
+        });
+        const rejectedAdoptions = await adoptionCollection.countDocuments({
+          email,
+          status: "rejected",
+        });
+        const SuccessAdoptions = await adoptionCollection.countDocuments({
+          email,
+          status: "success",
+        });
+
+        // optionally fetch detailed list
+        // const adoptionList = await adoptionCollection.find({ email }).toArray();
+
+        res.send({
+          success: true,
+          totalAdoptions,
+          pendingAdoptions,
+          rejectedAdoptions,
+          SuccessAdoptions,
+          // adoptionList,
+        });
+      } catch (error) {
+        console.error(error);
+        res.status(500).send({ error: "Failed to fetch adoption stats" });
       }
     });
 
@@ -593,6 +752,39 @@ async function run() {
         res.send(result);
       }
     );
+
+    app.get("/dashboard/user-donation-history", verifyJWT, async (req, res) => {
+      const email = req.query.email;
+
+      if (!email) {
+        return res.status(400).send({ error: "Email is required" });
+      }
+
+      // JWT user check
+      if (req.user.email !== email) {
+        return res.status(403).send({ error: "Forbidden: Email mismatch" });
+      }
+
+      try {
+        const donations = await paymentCollection
+          .find({ donatorEmail: email })
+          .project({
+            _id: 0,
+            campaignId: 1,
+            campaignTitle: 1,
+            campaignImageUrl: 1,
+            amount: 1,
+            createdAt: 1,
+          })
+          .sort({ createdAt: -1 }) // latest first
+          .toArray();
+
+        res.send(donations);
+      } catch (error) {
+        console.error("Error fetching donation history:", error);
+        res.status(500).send({ error: "Failed to fetch donation history" });
+      }
+    });
 
     // ✅ MongoDB Ping
     // await client.db("admin").command({ ping: 1 });
