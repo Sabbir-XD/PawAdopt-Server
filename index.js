@@ -32,7 +32,6 @@ app.get("/", (req, res) => {
 // 🔐 Middleware to verify JWT
 const verifyJWT = (req, res, next) => {
   const token = req?.headers?.authorization?.split(" ")[1];
-  console.log(token);
 
   if (!token) {
     return res.status(401).send({ message: "Unauthorized access" });
@@ -101,8 +100,29 @@ async function run() {
     });
 
     app.get("/users", verifyJWT, verifyAdmin, async (req, res) => {
-      const result = await userCollection.find().toArray();
-      res.send(result);
+      try {
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 10;
+
+        const skip = (page - 1) * limit;
+
+        const totalUsers = await userCollection.countDocuments();
+
+        // pagination applied users
+        const users = await userCollection
+          .find()
+          .skip(skip)
+          .limit(limit)
+          .toArray();
+
+        res.send({
+          users,
+          totalUsers,
+        });
+      } catch (error) {
+        console.error(error);
+        res.status(500).send({ message: "Server error" });
+      }
     });
 
     app.get("/users/:email", verifyJWT, async (req, res) => {
