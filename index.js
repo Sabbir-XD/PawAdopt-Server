@@ -180,14 +180,31 @@ async function run() {
       }
     });
 
-    app.patch("/users/admin/:id", verifyAdmin, async (req, res) => {
-      const id = req.params.id;
-      const result = await userCollection.updateOne(
-        { _id: new ObjectId(id) },
-        { $set: { role: "admin" } }
-      );
-      res.send(result);
-    });
+    // app.patch("/users/admin/:id", verifyAdmin, async (req, res) => {
+    //   const id = req.params.id;
+    //   const result = await userCollection.updateOne(
+    //     { _id: new ObjectId(id) },
+    //     { $set: { role: "admin" } }
+    //   );
+    //   res.send(result);
+    // });
+
+    // 🛠 PATCH - make someone admin
+    app.patch(
+      "/users/admin/:id",
+      verifyJWT,
+      verifyAdmin, // 🔒 only admin can make admin
+      async (req, res) => {
+        const id = req.params.id;
+
+        const result = await userCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: { role: "admin" } }
+        );
+
+        res.send(result);
+      }
+    );
 
     // 🐶 PET ROUTES
     app.post("/pets", async (req, res) => {
